@@ -230,25 +230,25 @@ jobs:
             diffTotalMonthlyCost=`jq '.diffTotalMonthlyCost' costing.json|sed 's/"//g'`
             value=`echo "PreviousCost: $pastTotalMonthlyCost NewCost: $totalMonthlyCost NetCost: $diffTotalMonthlyCost"`
             echo "CostUsage=$value" >> $GITHUB_ENV         
-        - name: Notify 
-          uses: girishbsaz/ms-teams-notifications@main
-          if: always()
-          with:
-            github-token: ${{ steps.generate_token.outputs.token }}
-            webhook-uri: ${{ secrets.TEAMS_HOOK }}
-            custom-facts: |
-              - name: Cost Estimate($)
-                value: "${{ env.CostUsage }}"
-              - name: Workflow 
-                value: "Details can be found at https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}."  
-              - name: OPA Check
-                value: "${{ env.opacheckop }}"
-            custom-actions: |
+#         - name: Notify 
+#           uses: girishbsaz/ms-teams-notifications@main
+#           if: always()
+#           with:
+#             github-token: ${{ steps.generate_token.outputs.token }}
+#             webhook-uri: ${{ secrets.TEAMS_HOOK }}
+#             custom-facts: |
+#               - name: Cost Estimate($)
+#                 value: "${{ env.CostUsage }}"
+#               - name: Workflow 
+#                 value: "Details can be found at https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}."  
+#               - name: OPA Check
+#                 value: "${{ env.opacheckop }}"
+#             custom-actions: |
               
-              - text: TF PLAN
-                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcom }}"
-              - text: COST Details
-                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcomm }}"                 
+#               - text: TF PLAN
+#                 url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcom }}"
+#               - text: COST Details
+#                 url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcomm }}"                 
                                                
 
 
