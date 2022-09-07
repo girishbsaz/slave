@@ -1,0 +1,666 @@
+name: InfraPipeline
+
+# Controls when the workflow will run
+on:
+   
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      CloudProvider:
+        description: 'AWS or AZURE'
+        required: true
+        default: 'azure'
+        type: choice
+        options:
+        - aws
+        - azure
+      AccountsORSubscription:
+        description: 'AWS account name OR AZURE Subscription name'
+        required: true
+        default: 'account1'
+      Project:
+        description: 'Project Name'
+        required: true
+        default: 'project1'
+      Environment:
+        description: 'Environment Name'
+        required: true
+        default: 'dev'        
+        type: choice
+        options:
+        - dev
+        - test
+        - prod
+env: 
+  ghsecret: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_secret
+  ghkey: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_id
+  INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+jobs:
+    # Job to perform terraform plan, check against OPA policies, calculate InfraCost and send notification for approval
+    aws_plan:
+        if: github.event.inputs.CloudProvider == 'aws'
+        runs-on: ubuntu-latest
+         
+        steps:
+        - name: Generate token
+          id: generate_token
+          uses: getsentry/action-github-app-token@v1
+          with:
+            app_id: ${{ secrets.MAF_GITHUB_APP_ID }}
+            private_key: ${{ secrets.MAF_GITHUB_APP_PRIVATE_KEY }}
+        - name: Use token
+          env:
+            TOKEN: ${{ steps.generate_token.outputs.token }}
+          run: |
+            echo "The generated token is masked: ${TOKEN}"
+        - name: Checkout Current Repository
+          uses: actions/checkout@v2
+        - name: Checkout Provisioning Action Repository in `./action` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-provisioning
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./action
+            ref: dev
+        - name: Checkout Opa Repository in `./opacheck` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-pac
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./opacheck
+            ref: dev            
+        - name: Checkout Terraform Modules in `./modules` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-tf-modules
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./modules
+            ref: dev            
+        - name: Checkout Notification Action Repository in `./notify` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-msnotifications
+            token: ${{ steps.generate_token.outputs.token }}
+            ref: dev
+            path: ./notify
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+        - name: Setting EnV Credentials
+          run: |
+            ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
+            ghkey_m=$(echo "${{ env.ghkey }}"|sed 's/-/_/g') && echo "ghkey_m=$ghkey_m" >> $GITHUB_ENV
+        - name: Terraform Init
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Plan
+          id: plan
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: plan
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -out build.tfplan
+        - name: Terraform plan for comment
+          id: show
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }}           
+          uses: ./action/
+          with:
+            operation: terraform
+            command: show
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -no-color build.tfplan
+            output_file: ../../../../plan.txt
+            
+        - name: Reformat Plan check
+          run: |
+               echo "\`\`\`" >op.txt && cat plan.txt >> op.txt && echo "\`\`\`" >> op.txt
+
+        - name: Add Plan to GitHub commit comment
+          if: steps.plan.outcome == 'success'
+
+          run: |
+            value=`cat op.txt`
+            JSON_STRING=$( jq -n \
+                    --arg msg "$value" \
+                    '{body: $msg}' )
+            response=$(curl -sL  -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: token ${{ steps.generate_token.outputs.token }}" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+                -d "$JSON_STRING")  
+            echo "$response"   
+            commitcom=`echo $response|jq '.id'`
+            echo "commitcom=$commitcom" >> $GITHUB_ENV   
+            
+        - name: Tflint init
+          uses: ./action/
+          with:
+            operation: tflint
+            command: --init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Tflint module
+          uses: ./action/
+          with:
+            operation: tflint
+            command: --module
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Show
+          uses: ./action/
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }}           
+          with:
+            operation: terraform
+            command: show
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -json build.tfplan
+            output_file: ../../../../build_terraform.json
+        - name: Opa Check
+          id: opacheck
+          uses: ./action/
+          with:
+            operation: opa
+            command: eval
+            arguments: -i build_terraform.json -d opacheck/aws-pac/ --fail-defined data.terraform.deny[x]
+        - name: opa check notification settings
+          if: steps.opacheck.outcome == 'success'
+          run: |
+            opacheckop=`echo "${{ steps.opacheck.outputs.stdout || steps.opacheck.outputs.stderr }}"`
+            if [ "$opacheckop" == "" ]
+            then 
+              opacheckop="No Findings"
+
+            else
+              opacheckop="OPA Check Failed"
+            fi
+                
+            echo "opacheckop=$opacheckop" >> $GITHUB_ENV 
+        - name: Upload Artifact
+          uses: actions/upload-artifact@v3
+          with:
+            name: Terraform Plan
+            path: |
+              build_terraform.json
+              plan.txt
+            retention-days: 90
+        - name: Infracost Calculation
+          uses: ./action/
+          with:
+            operation: infracost
+            command: breakdown
+            arguments: --path build_terraform.json --format json --out-file costing.json
+        - name: Infracost Conversion to MD
+          uses: ./action/
+          with:
+            operation: infracost
+            command: output
+            arguments: --format github-comment --path costing.json --out-file costing.md
+        - name: Add commit comment
+          run: |
+            value=`cat costing.md`
+            JSON_STRING=$( jq -n \
+                    --arg msg "$value" \
+                    '{body: $msg}' )
+            echo "$JSON_STRING"        
+            response=$(curl -sL  -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+                -d "$JSON_STRING")
+            commitcomm=`echo $response|jq '.id'`
+            echo "commitcomm=$commitcomm" >> $GITHUB_ENV 
+            echo "$value"             
+        - name: Setting Cost Usage Variables
+          run: |
+            totalMonthlyCost=`jq '.totalMonthlyCost' costing.json|sed 's/"//g'`
+            pastTotalMonthlyCost=`jq '.pastTotalMonthlyCost' costing.json|sed 's/"//g'`
+            diffTotalMonthlyCost=`jq '.diffTotalMonthlyCost' costing.json|sed 's/"//g'`
+            value=`echo "PreviousCost: $pastTotalMonthlyCost NewCost: $totalMonthlyCost NetCost: $diffTotalMonthlyCost"`
+            echo "CostUsage=$value" >> $GITHUB_ENV         
+        - name: Notify 
+          uses: GS-MAFTech/ms-teams-notifications@main
+          if: always()
+          with:
+            github-token: ${{ steps.generate_token.outputs.token }}
+            webhook-uri: ${{ secrets.TEAMS_HOOK }}
+            custom-facts: |
+              - name: Cost Estimate($)
+                value: "${{ env.CostUsage }}"
+              - name: Workflow 
+                value: "Details can be found at https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}."  
+              - name: OPA Check
+                value: "${{ env.opacheckop }}"
+            custom-actions: |
+              
+              - text: TF PLAN
+                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcom }}"
+              - text: COST Details
+                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcomm }}"                 
+                                               
+
+
+    aws_apply:
+        runs-on: ubuntu-latest
+        environment: 'terraform-apply'
+        needs: [aws_plan]
+        steps:
+        - name: Generate token
+          id: generate_token
+          uses: getsentry/action-github-app-token@v1
+          with:
+            app_id: ${{ secrets.MAF_GITHUB_APP_ID }}
+            private_key: ${{ secrets.MAF_GITHUB_APP_PRIVATE_KEY }}
+        - name: Use token
+          env:
+            TOKEN: ${{ steps.generate_token.outputs.token }}
+          run: |
+            echo "The generated token is masked: ${TOKEN}"
+        - name: Checkout Current Repository
+          uses: actions/checkout@v2
+        - name: Checkout Provisioning Action Repository in `./action` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-provisioning
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./action
+            ref: dev
+        - name: Checkout Opa Repository in `./opacheck` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-pac
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./opacheck
+            ref: dev            
+        - name: Checkout Terraform Modules in `./modules` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-tf-modules
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./modules
+            ref: dev            
+        - name: Checkout Notification Action Repository in `./notify` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-msnotifications
+            token: ${{ steps.generate_token.outputs.token }}
+            ref: dev
+            path: ./notify
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+        - name: Setting EnV Credentials
+          run: |
+            ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
+            ghkey_m=$(echo "${{ env.ghkey }}"|sed 's/-/_/g') && echo "ghkey_m=$ghkey_m" >> $GITHUB_ENV
+        - name: Terraform Init
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Plan
+          id: plan
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: plan
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -out build.tfplan
+        - name: Terraform Apply
+          id: apply
+          env:
+            AWS_SECRET_ACCESS_KEY: ${{ secrets[env.ghsecret_m] }}
+            AWS_ACCESS_KEY_ID: ${{ secrets[env.ghkey_m] }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: apply
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: --auto-approve
+        - name: Send a Notification
+          id: notify
+          if: always()
+          uses: ./notify
+          with:
+            teams_webhook_url: ${{ secrets.TEAMS_HOOK }}
+            message: "Github Action Completed for ${{ github.repository }} with Build Number ${{ github.run_number }} and the outcome for plan is ${{ needs.aws_plan.result }} and apply is ${{ steps.apply.outcome }}."
+    
+    azure_plan:
+        if: github.event.inputs.CloudProvider == 'azure'
+        runs-on: ubuntu-latest
+         
+        steps:
+        - name: Generate token
+          id: generate_token
+          uses: getsentry/action-github-app-token@v1
+          with:
+            app_id: ${{ secrets.MAF_GITHUB_APP_ID }}
+            private_key: ${{ secrets.MAF_GITHUB_APP_PRIVATE_KEY }}
+        - name: Use token
+          env:
+            TOKEN: ${{ steps.generate_token.outputs.token }}
+          run: |
+            echo "The generated token is masked: ${TOKEN}"
+        - name: Checkout Current Repository
+          uses: actions/checkout@v2
+        - name: Checkout Provisioning Action Repository in `./action` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-provisioning
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./action
+            ref: dev
+        - name: Checkout Opa Repository in `./opacheck` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-pac
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./opacheck
+            ref: dev            
+        - name: Checkout Terraform Modules in `./modules` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-tf-modules
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./modules
+            ref: dev            
+        - name: Checkout Notification Action Repository in `./notify` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-msnotifications
+            token: ${{ steps.generate_token.outputs.token }}
+            ref: dev
+            path: ./notify
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+        - name: Setting EnV Credentials
+          run: |
+            ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
+            ghkey_m=$(echo "${{ env.ghkey }}"|sed 's/-/_/g') && echo "ghkey_m=$ghkey_m" >> $GITHUB_ENV
+        - name: Terraform Init
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Plan
+          id: plan
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: plan
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -out build.tfplan
+        - name: Terraform plan for comment
+          id: show
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}           
+          uses: ./action/
+          with:
+            operation: terraform
+            command: show
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -no-color build.tfplan
+            output_file: ../../../../plan.txt
+            
+        - name: Reformat Plan check
+          run: |
+               echo "\`\`\`" >op.txt && cat plan.txt >> op.txt && echo "\`\`\`" >> op.txt
+
+        - name: Add Plan to GitHub commit comment
+          if: steps.plan.outcome == 'success'
+
+          run: |
+            value=`cat op.txt`
+            JSON_STRING=$( jq -n \
+                    --arg msg "$value" \
+                    '{body: $msg}' )
+            response=$(curl -sL  -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: token ${{ steps.generate_token.outputs.token }}" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+                -d "$JSON_STRING")  
+            echo "$response"   
+            commitcom=`echo $response|jq '.id'`
+            echo "commitcom=$commitcom" >> $GITHUB_ENV   
+
+
+        - name: Tflint init
+          uses: ./action/
+          with:
+            operation: tflint
+            command: --init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Tflint module
+          uses: ./action/
+          with:
+            operation: tflint
+            command: --module
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Show
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }}         
+          uses: ./action/
+          with:
+            operation: terraform
+            command: show
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -json build.tfplan
+            output_file: ../../../../build_terraform.json
+        # - name: Opa Check
+        #   id: opacheck
+        #   uses: ./action/
+        #   with:
+        #     operation: opa
+        #     command: eval
+        #     arguments: -i build_terraform.json -d opacheck/azure-pac/ --fail-defined data.terraform.deny[x]
+        # - name: opa check notification settings
+        #   if: steps.opacheck.outcome == 'success'
+        #   run: |
+        #     opacheckop=`echo "${{ steps.opacheck.outputs.stdout || steps.opacheck.outputs.stderr }}"`
+        #     if [ "$opacheckop" == "" ]
+        #     then 
+        #       opacheckop="No Findings"
+
+        #     else
+        #       opacheckop="OPA Check Failed"
+        #     fi
+                
+        #     echo "opacheckop=$opacheckop" >> $GITHUB_ENV 
+        - name: Upload Artifact
+          uses: actions/upload-artifact@v3
+          with:
+            name: Terraform Plan
+            path: |
+              build_terraform.json
+              plan.txt
+            retention-days: 90
+        - name: Infracost Calculation
+          uses: ./action/
+          with:
+            operation: infracost
+            command: breakdown
+            arguments: --path build_terraform.json --format json --out-file costing.json
+        - name: Infracost Conversion to MD
+          uses: ./action/
+          with:
+            operation: infracost
+            command: output
+            arguments: --format github-comment --path costing.json --out-file costing.md
+        - name: Add commit comment
+          run: |
+            value=`cat costing.md`
+            JSON_STRING=$( jq -n \
+                    --arg msg "$value" \
+                    '{body: $msg}' )
+            echo "$JSON_STRING"        
+            response=$(curl -sL  -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+                -d "$JSON_STRING")
+            commitcomm=`echo $response|jq '.id'`
+            echo "commitcomm=$commitcomm" >> $GITHUB_ENV 
+            echo "$value"             
+        - name: Setting Cost Usage Variables
+          run: |
+            totalMonthlyCost=`jq '.totalMonthlyCost' costing.json|sed 's/"//g'`
+            pastTotalMonthlyCost=`jq '.pastTotalMonthlyCost' costing.json|sed 's/"//g'`
+            diffTotalMonthlyCost=`jq '.diffTotalMonthlyCost' costing.json|sed 's/"//g'`
+            value=`echo "PreviousCost: $pastTotalMonthlyCost NewCost: $totalMonthlyCost NetCost: $diffTotalMonthlyCost"`
+            echo "CostUsage=$value" >> $GITHUB_ENV         
+        - name: Notify 
+          uses: GS-MAFTech/ms-teams-notifications@main
+          if: always()
+          with:
+            github-token: ${{ steps.generate_token.outputs.token }}
+            webhook-uri: ${{ secrets.TEAMS_HOOK }}
+            custom-facts: |
+              - name: Cost Estimate($)
+                value: "${{ env.CostUsage }}"
+              - name: Workflow 
+                value: "Details can be found at https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}."  
+
+            custom-actions: |
+              
+              - text: TF PLAN
+                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcom }}"
+              - text: COST Details
+                url: "https://github.com/${{github.repository}}/commit/${{github.sha}}/#commitcomment-${{ env.commitcomm }}"                 
+    azure_apply:
+        runs-on: ubuntu-latest
+        environment: 'terraform-apply'
+        needs: [azure_plan]
+        steps:
+        - name: Generate token
+          id: generate_token
+          uses: getsentry/action-github-app-token@v1
+          with:
+            app_id: ${{ secrets.MAF_GITHUB_APP_ID }}
+            private_key: ${{ secrets.MAF_GITHUB_APP_PRIVATE_KEY }}
+        - name: Use token
+          env:
+            TOKEN: ${{ steps.generate_token.outputs.token }}
+          run: |
+            echo "The generated token is masked: ${TOKEN}"
+        - name: Checkout Current Repository
+          uses: actions/checkout@v2
+        - name: Checkout Provisioning Action Repository in `./action` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-provisioning
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./action
+            ref: dev
+        - name: Checkout Opa Repository in `./opacheck` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-pac
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./opacheck
+            ref: dev            
+        - name: Checkout Terraform Modules in `./modules` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/iac-tf-modules
+            token: ${{ steps.generate_token.outputs.token }}
+            path: ./modules
+            ref: dev            
+        - name: Checkout Notification Action Repository in `./notify` directory
+          uses: actions/checkout@v2
+          with:
+            repository: GS-MAFTech/githubactions-msnotifications
+            token: ${{ steps.generate_token.outputs.token }}
+            ref: dev
+            path: ./notify
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+        - name: Docker Login & Pull Image
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+        - name: Setting EnV Credentials
+          run: |
+            ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
+            ghkey_m=$(echo "${{ env.ghkey }}"|sed 's/-/_/g') && echo "ghkey_m=$ghkey_m" >> $GITHUB_ENV
+        - name: Terraform Init
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: init
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+        - name: Terraform Plan
+          id: plan
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: plan
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: -out build.tfplan
+        - name: Terraform Apply
+          id: apply
+          env:
+            ARM_CLIENT_SECRET: ${{ secrets[env.ghsecret_m] }}
+            ARM_CLIENT_ID: ${{ secrets[env.ghkey_m] }}
+            ARM_TENANT_ID: ${{ secrets.TENANT_ID }}
+            ARM_SUBSCRIPTION_ID: ${{ secrets.SUBSCRIPTION_ID }} 
+          uses: ./action/
+          with:
+            operation: terraform
+            command: apply
+            working_directory: ${{ github.event.inputs.CloudProvider }}/${{ github.event.inputs.AccountsORSubscription }}/${{ github.event.inputs.Project }}/${{ github.event.inputs.Environment }}
+            arguments: --auto-approve
+        - name: Send a Notification
+          id: notify
+          if: always()
+          uses: ./notify
+          with:
+            teams_webhook_url: ${{ secrets.TEAMS_HOOK }}
+            message: "Github Action Completed for ${{ github.repository }} with Build Number ${{ github.run_number }} and the outcome for plan is ${{ needs.azure_plan.result }} and apply is ${{ steps.apply.outcome }}."
+  
