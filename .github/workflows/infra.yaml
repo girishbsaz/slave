@@ -369,28 +369,14 @@ jobs:
             repository: girishbsaz/githubactions-provisioning
             token: ${{ steps.generate_token.outputs.token }}
             path: ./action
-            ref: dev
-        - name: Checkout Opa Repository in `./opacheck` directory
-          uses: actions/checkout@v2
-          with:
-            repository: girishbsaz/iac-pac
-            token: ${{ steps.generate_token.outputs.token }}
-            path: ./opacheck
-            ref: dev            
+            ref: dev         
         - name: Checkout Terraform Modules in `./modules` directory
           uses: actions/checkout@v2
           with:
-            repository: girishbsaz/iac-tf-modules
+            repository: girishbsaz/master
             token: ${{ steps.generate_token.outputs.token }}
             path: ./modules
             ref: dev            
-        - name: Checkout Notification Action Repository in `./notify` directory
-          uses: actions/checkout@v2
-          with:
-            repository: girishbsaz/githubactions-msnotifications
-            token: ${{ steps.generate_token.outputs.token }}
-            ref: dev
-            path: ./notify
         - name: Docker Login & Pull Image
           run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-msnotifications:v2
         - name: Docker Login & Pull Image
