@@ -58,35 +58,35 @@ jobs:
         - name: Checkout Provisioning Action Repository in `./action` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-provisioning
+            repository: girishbsaz/githubactions-provisioning
             token: ${{ steps.generate_token.outputs.token }}
             path: ./action
             ref: dev
         - name: Checkout Opa Repository in `./opacheck` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-pac
+            repository: girishbsaz/iac-pac
             token: ${{ steps.generate_token.outputs.token }}
             path: ./opacheck
             ref: dev            
         - name: Checkout Terraform Modules in `./modules` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-tf-modules
+            repository: girishbsaz/iac-tf-modules
             token: ${{ steps.generate_token.outputs.token }}
             path: ./modules
             ref: dev            
         - name: Checkout Notification Action Repository in `./notify` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-msnotifications
+            repository: girishbsaz/githubactions-msnotifications
             token: ${{ steps.generate_token.outputs.token }}
             ref: dev
             path: ./notify
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-msnotifications:v2
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-provisioning:v3
         - name: Setting EnV Credentials
           run: |
             ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
@@ -231,7 +231,7 @@ jobs:
             value=`echo "PreviousCost: $pastTotalMonthlyCost NewCost: $totalMonthlyCost NetCost: $diffTotalMonthlyCost"`
             echo "CostUsage=$value" >> $GITHUB_ENV         
         - name: Notify 
-          uses: GS-MAFTech/ms-teams-notifications@main
+          uses: girishbsaz/ms-teams-notifications@main
           if: always()
           with:
             github-token: ${{ steps.generate_token.outputs.token }}
@@ -273,35 +273,35 @@ jobs:
         - name: Checkout Provisioning Action Repository in `./action` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-provisioning
+            repository: girishbsaz/githubactions-provisioning
             token: ${{ steps.generate_token.outputs.token }}
             path: ./action
             ref: dev
         - name: Checkout Opa Repository in `./opacheck` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-pac
+            repository: girishbsaz/iac-pac
             token: ${{ steps.generate_token.outputs.token }}
             path: ./opacheck
             ref: dev            
         - name: Checkout Terraform Modules in `./modules` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-tf-modules
+            repository: girishbsaz/iac-tf-modules
             token: ${{ steps.generate_token.outputs.token }}
             path: ./modules
             ref: dev            
         - name: Checkout Notification Action Repository in `./notify` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-msnotifications
+            repository: girishbsaz/githubactions-msnotifications
             token: ${{ steps.generate_token.outputs.token }}
             ref: dev
             path: ./notify
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-msnotifications:v2
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-provisioning:v3
         - name: Setting EnV Credentials
           run: |
             ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
@@ -366,35 +366,35 @@ jobs:
         - name: Checkout Provisioning Action Repository in `./action` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-provisioning
+            repository: girishbsaz/githubactions-provisioning
             token: ${{ steps.generate_token.outputs.token }}
             path: ./action
             ref: dev
         - name: Checkout Opa Repository in `./opacheck` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-pac
+            repository: girishbsaz/iac-pac
             token: ${{ steps.generate_token.outputs.token }}
             path: ./opacheck
             ref: dev            
         - name: Checkout Terraform Modules in `./modules` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-tf-modules
+            repository: girishbsaz/iac-tf-modules
             token: ${{ steps.generate_token.outputs.token }}
             path: ./modules
             ref: dev            
         - name: Checkout Notification Action Repository in `./notify` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-msnotifications
+            repository: girishbsaz/githubactions-msnotifications
             token: ${{ steps.generate_token.outputs.token }}
             ref: dev
             path: ./notify
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-msnotifications:v2
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-provisioning:v3
         - name: Setting EnV Credentials
           run: |
             ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
@@ -548,7 +548,7 @@ jobs:
             value=`echo "PreviousCost: $pastTotalMonthlyCost NewCost: $totalMonthlyCost NetCost: $diffTotalMonthlyCost"`
             echo "CostUsage=$value" >> $GITHUB_ENV         
         - name: Notify 
-          uses: GS-MAFTech/ms-teams-notifications@main
+          uses: girishbsaz/ms-teams-notifications@main
           if: always()
           with:
             github-token: ${{ steps.generate_token.outputs.token }}
@@ -586,35 +586,35 @@ jobs:
         - name: Checkout Provisioning Action Repository in `./action` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-provisioning
+            repository: girishbsaz/githubactions-provisioning
             token: ${{ steps.generate_token.outputs.token }}
             path: ./action
             ref: dev
         - name: Checkout Opa Repository in `./opacheck` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-pac
+            repository: girishbsaz/iac-pac
             token: ${{ steps.generate_token.outputs.token }}
             path: ./opacheck
             ref: dev            
         - name: Checkout Terraform Modules in `./modules` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/iac-tf-modules
+            repository: girishbsaz/iac-tf-modules
             token: ${{ steps.generate_token.outputs.token }}
             path: ./modules
             ref: dev            
         - name: Checkout Notification Action Repository in `./notify` directory
           uses: actions/checkout@v2
           with:
-            repository: GS-MAFTech/githubactions-msnotifications
+            repository: girishbsaz/githubactions-msnotifications
             token: ${{ steps.generate_token.outputs.token }}
             ref: dev
             path: ./notify
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-msnotifications:v2
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-msnotifications:v2
         - name: Docker Login & Pull Image
-          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/gs-maftech/githubactions-provisioning:v3
+          run: echo  ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin && docker pull ghcr.io/girishbsaz/githubactions-provisioning:v3
         - name: Setting EnV Credentials
           run: |
             ghsecret_m=$(echo "${{ env.ghsecret }}"|sed 's/-/_/g') && echo "ghsecret_m=$ghsecret_m" >> $GITHUB_ENV
