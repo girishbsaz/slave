@@ -31,10 +31,10 @@ on:
         - dev
         - test
         - prod
-env: 
-  ghsecret: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_secret
-  ghkey: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_id
-  #INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+# env: 
+#   ghsecret: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_secret
+#   ghkey: ${{ github.event.inputs.CloudProvider }}_${{ github.event.inputs.AccountsORSubscription }}_${{ github.event.inputs.Project }}_${{ github.event.inputs.Environment }}_id
+#   #INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
 jobs:
     # Job to perform terraform plan, check against OPA policies, calculate InfraCost and send notification for approval
     
